@@ -28,6 +28,19 @@
  * await syncSanctionsToDenylist({ provider, addresses, writer });
  * ```
  */
+/**
+ * Result of a single provider check. `score` is optional: providers that
+ * return a risk/confidence score (rather than a plain boolean) can report it
+ * so {@link SyncOptions.minScoreToBlock} can route low-confidence matches to
+ * manual review instead of an automatic on-chain block.
+ */
+export interface CheckResult {
+  flagged: boolean;
+  source: string;
+  /** Optional provider risk/confidence score (higher = more confident match). */
+  score?: number;
+}
+
 export interface SanctionsProvider {
-  checkAddress(address: string): Promise<{ flagged: boolean; source: string }>;
+  checkAddress(address: string): Promise<CheckResult>;
 }

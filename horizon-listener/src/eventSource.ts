@@ -4,6 +4,7 @@
  */
 
 import { rpc } from '@stellar/stellar-sdk';
+import { type EventDecodeMode, decodeScValToJson, decodeTopicToString } from './decode';
 
 /**
  * A normalised representation of a single Soroban contract event as returned
@@ -77,6 +78,14 @@ export interface RpcEventSourceOptions {
   // If the call takes longer than this, it will be rejected.
   // Left undefined, no timeout is applied (relies on SDK's default).
   timeoutMs?: number;
+  /**
+   * 'none' (default): topics are `String()`-ed and `value` is the raw SDK
+   * ScVal. 'native': `scValToNative` is applied to topics and value, encoded
+   * JSON-safely (bigint as decimal string, bytes as hex), so consumers and
+   * webhook receivers don't need stellar-sdk. Non-string topic segments are
+   * JSON-encoded so `topic` stays `string[]`.
+   */
+  decode?: EventDecodeMode;
 }
 
 // Real Soroban RPC request/response shapes vary slightly by SDK minor version and
@@ -142,7 +151,10 @@ export class RpcEventSource implements EventSource {
       ? await Promise.race([
           getEventsPromise,
           new Promise<never>((_, reject) =>
-            setTimeout(() => reject(new Error(`RPC getEvents timeout after ${this.options.timeoutMs}ms`)), this.options.timeoutMs)
+            setTimeout(
+              () => reject(new Error(`RPC getEvents timeout after ${this.options.timeoutMs}ms`)),
+              this.options.timeoutMs,
+            ),
           ),
         ])
       : await getEventsPromise;
@@ -157,12 +169,15 @@ export class RpcEventSource implements EventSource {
         topic?: unknown[];
         value: unknown;
       };
+      const native = this.options.decode === 'native';
       return {
         id: event.id,
         contractId: event.contractId,
         ledger: event.ledger,
-        topic: (event.topic ?? []).map((topicItem) => String(topicItem)),
-        value: event.value,
+        topic: (event.topic ?? []).map((topicItem) =>
+          native ? decodeTopicToString(topicItem) : String(topicItem),
+        ),
+        value: native ? decodeScValToJson(event.value) : event.value,
       };
     });
 

@@ -133,6 +133,8 @@ npx compliance-adapters sync-sanctions --dry-run --addresses ./sanctions-oracle/
 
 Run `npx compliance-adapters --help` for available commands and `npx compliance-adapters sync-sanctions --help` for command-specific options.
 
+To run sync on a schedule, see [`docs/deploy/`](./docs/deploy/README.md) for a Kubernetes CronJob and a systemd service + timer.
+
 ### Building
 
 The root-level `npm run build` script runs the TypeScript compiler across all three packages

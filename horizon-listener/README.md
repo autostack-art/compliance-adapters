@@ -133,6 +133,19 @@ app.post('/webhook', (req, res) => {
 app.listen(4000);
 ```
 
+## Decoding events to native JS (`decode`)
+
+By default (`decode: 'none'`) `RpcEventSource` emits raw SDK values. Pass
+`decode: 'native'` to apply `scValToNative` to topics and value with JSON-safe
+encoding — bigint (e.g. `i128`) as a decimal string, bytes as hex, maps as
+plain objects — so webhook receivers don't need stellar-sdk:
+
+```ts
+const eventSource = new RpcEventSource({ rpcUrl, networkPassphrase, contractIds, startLedger, decode: 'native' });
+```
+
+Non-string topic segments are JSON-encoded so `topic` stays `string[]`.
+
 ## Polling mode vs stream mode
 
 `HorizonListener` supports two polling modes via the `mode` option:

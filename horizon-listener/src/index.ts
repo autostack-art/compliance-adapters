@@ -11,6 +11,13 @@ export {
   type RpcEventSourceOptions,
 } from './eventSource';
 export {
+  toJsonSafe,
+  decodeScValToJson,
+  decodeTopicToString,
+  type EventDecodeMode,
+  type JsonSafeValue,
+} from './decode';
+export {
   InMemoryDeadLetterQueue,
   FileDeadLetterQueue,
   type DeadLetterEvent,

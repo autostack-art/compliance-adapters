@@ -1,0 +1,24 @@
+# Validate with: systemd-analyze verify docs/deploy/systemd/sanctions-sync.service
+[Unit]
+Description=sanctions-oracle sync to denylist-gate
+Wants=network-online.target
+After=network-online.target
+
+[Service]
+# oneshot + timer: systemd never starts a second instance while one is running,
+# which prevents overlapping syncs.
+Type=oneshot
+User=sanctions-oracle
+Group=sanctions-oracle
+# Non-secret config: CONTRACT_ID, RPC_URL, NETWORK_PASSPHRASE.
+EnvironmentFile=/etc/sanctions-oracle/sync.env
+# Secret key is passed as a systemd credential (file readable only by this unit).
+LoadCredential=secret-key:/etc/sanctions-oracle/secret-key
+ExecStart=/bin/sh -c 'SANCTIONS_ORACLE_SECRET_KEY="$(cat "$CREDENTIALS_DIRECTORY/secret-key")" exec /usr/bin/npx --yes compliance-adapters sync-sanctions --addresses /etc/sanctions-oracle/addresses.json --contract-id "$CONTRACT_ID" --rpc-url "$RPC_URL" --network-passphrase "$NETWORK_PASSPHRASE"'
+TimeoutStartSec=1h
+NoNewPrivileges=true
+ProtectSystem=strict
+ProtectHome=true
+PrivateTmp=true
+StateDirectory=sanctions-oracle
+Environment=HOME=/var/lib/sanctions-oracle

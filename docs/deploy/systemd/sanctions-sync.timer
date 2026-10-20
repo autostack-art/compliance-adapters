@@ -1,0 +1,13 @@
+# Validate with: systemd-analyze verify docs/deploy/systemd/sanctions-sync.timer
+[Unit]
+Description=Run sanctions-oracle sync every 6 hours
+
+[Timer]
+OnCalendar=*-*-* 00/6:00:00
+RandomizedDelaySec=5m
+# Catch up on a missed run after downtime.
+Persistent=true
+Unit=sanctions-sync.service
+
+[Install]
+WantedBy=timers.target

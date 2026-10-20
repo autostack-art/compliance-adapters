@@ -1,0 +1,81 @@
+# Scheduled sanctions-oracle sync as a Kubernetes CronJob.
+# Validate with: kubectl apply --dry-run=client -f docs/deploy/kubernetes/sanctions-sync-cronjob.yaml
+---
+apiVersion: v1
+kind: Secret
+metadata:
+  name: sanctions-oracle-secrets
+type: Opaque
+stringData:
+  # Replace with the denylist-gate admin secret key (or manage via an external secret store).
+  secret-key: "SREPLACE_ME"
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: sanctions-oracle-addresses
+data:
+  addresses.json: |
+    []
+---
+apiVersion: batch/v1
+kind: CronJob
+metadata:
+  name: sanctions-sync
+spec:
+  schedule: "0 */6 * * *"
+  # Never run two syncs at once: a slow run must finish before the next starts.
+  concurrencyPolicy: Forbid
+  startingDeadlineSeconds: 600
+  successfulJobsHistoryLimit: 3
+  failedJobsHistoryLimit: 3
+  jobTemplate:
+    spec:
+      backoffLimit: 1
+      activeDeadlineSeconds: 3600
+      template:
+        spec:
+          restartPolicy: Never
+          containers:
+            - name: sanctions-sync
+              image: node:20-alpine
+              command: ["/bin/sh", "-c"]
+              args:
+                - >-
+                  export SANCTIONS_ORACLE_SECRET_KEY="$(cat /var/run/secrets/sanctions-oracle/secret-key)" &&
+                  npx --yes compliance-adapters sync-sanctions
+                  --addresses /etc/sanctions-oracle/addresses.json
+                  --contract-id "$CONTRACT_ID"
+                  --rpc-url "$RPC_URL"
+                  --network-passphrase "$NETWORK_PASSPHRASE"
+              env:
+                - name: CONTRACT_ID
+                  value: "CREPLACE_ME"
+                - name: RPC_URL
+                  value: "https://soroban-testnet.stellar.org"
+                - name: NETWORK_PASSPHRASE
+                  value: "Test SDF Network ; September 2015"
+              volumeMounts:
+                # Secret mounted as a read-only file, not an env var or CLI flag,
+                # so it never shows up in `kubectl describe` or process listings.
+                - name: secrets
+                  mountPath: /var/run/secrets/sanctions-oracle
+                  readOnly: true
+                - name: addresses
+                  mountPath: /etc/sanctions-oracle
+                  readOnly: true
+              resources:
+                requests: { cpu: 100m, memory: 128Mi }
+                limits: { memory: 512Mi }
+              securityContext:
+                runAsNonRoot: true
+                runAsUser: 1000
+                allowPrivilegeEscalation: false
+          volumes:
+            - name: secrets
+              secret:
+                secretName: sanctions-oracle-secrets
+                defaultMode: 0400
+            - name: addresses
+              configMap:
+                name: sanctions-oracle-addresses

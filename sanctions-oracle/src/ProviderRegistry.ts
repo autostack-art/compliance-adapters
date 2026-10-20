@@ -3,7 +3,7 @@
  * SPDX-License-Identifier: MIT
  */
 
-import { SanctionsProvider } from './SanctionsProvider';
+import { SanctionsProvider, CheckResult } from './SanctionsProvider';
 
 export type ConflictResolutionPolicy = 'any-flag-wins' | 'majority-vote' | 'priority-override';
 
@@ -35,6 +35,7 @@ export interface ProviderCheckOutcome {
   name: string;
   flagged: boolean;
   source: string;
+  score?: number;
 }
 
 export interface ProviderErrorOutcome {
@@ -45,6 +46,8 @@ export interface ProviderErrorOutcome {
 export interface RegistryCheckResult {
   flagged: boolean;
   source: string;
+  /** Highest score reported by the providers that agree with the verdict, if any. */
+  score?: number;
   policy: ConflictResolutionPolicy;
   results: ProviderCheckOutcome[];
   errors: ProviderErrorOutcome[];
@@ -112,9 +115,13 @@ export class ProviderRegistry implements SanctionsProvider {
     return Array.from(this.providers.keys());
   }
 
-  async checkAddress(address: string): Promise<{ flagged: boolean; source: string }> {
+  async checkAddress(address: string): Promise<CheckResult> {
     const result = await this.checkAddressDetailed(address);
-    return { flagged: result.flagged, source: result.source };
+    return {
+      flagged: result.flagged,
+      source: result.source,
+      ...(result.score !== undefined ? { score: result.score } : {}),
+    };
   }
 
   async checkAddressDetailed(address: string): Promise<RegistryCheckResult> {
@@ -133,8 +140,16 @@ export class ProviderRegistry implements SanctionsProvider {
           | { entry: RegisteredProvider; error: string }
         > => {
           try {
-            const { flagged, source } = await entry.provider.checkAddress(address);
-            return { entry, outcome: { name: entry.name, flagged, source } };
+            const { flagged, source, score } = await entry.provider.checkAddress(address);
+            return {
+              entry,
+              outcome: {
+                name: entry.name,
+                flagged,
+                source,
+                ...(score !== undefined ? { score } : {}),
+              },
+            };
           } catch (err) {
             return { entry, error: err instanceof Error ? err.message : String(err) };
           }
@@ -168,8 +183,20 @@ export class ProviderRegistry implements SanctionsProvider {
     }
 
     const { flagged, source } = this.resolve(registered, votingResults);
+    // Carry scores through: the highest score among providers agreeing with the verdict.
+    const scores = votingResults
+      .filter((r) => r.flagged === flagged && typeof r.score === 'number')
+      .map((r) => r.score as number);
+    const score = scores.length > 0 ? Math.max(...scores) : undefined;
 
-    return { flagged, source, policy: this.policy, results, errors };
+    return {
+      flagged,
+      source,
+      ...(score !== undefined ? { score } : {}),
+      policy: this.policy,
+      results,
+      errors,
+    };
   }
 
   private resolve(

@@ -106,6 +106,20 @@ const result = await syncSanctionsToDenylist({
 From the CLI, use `--reconcile --denylist-snapshot <path>` (a JSON array of the
 addresses currently on the denylist); combine with `--dry-run` to preview.
 
+### Score thresholds (`minScoreToBlock`)
+
+Providers may return an optional `score` in their `CheckResult`
+(`ProviderRegistry` carries it through as the highest score among the
+providers agreeing with the verdict). Set `minScoreToBlock` and flagged results
+with `score < minScoreToBlock` are reported in `SyncResult.needsReview`
+(`{ address, source, score }`) for manual review and are **never written**.
+Results with no score, or `score >= minScoreToBlock`, are written as usual.
+
+```ts
+const result = await syncSanctionsToDenylist({ provider, addresses, writer, minScoreToBlock: 0.9 });
+console.log(result.needsReview);
+```
+
 ### Resuming an interrupted sync
 
 Pass a `SyncOptions.checkpoint` store (interface `SyncCheckpointStore`, with
@@ -626,6 +640,22 @@ node dist/sync.js \
 This builds, signs, and submits one `add_to_denylist` invocation per
 flagged address using `@stellar/stellar-sdk`'s `Contract`,
 `TransactionBuilder`, and `rpc.Server`.
+
+### Fee estimate in dry-run
+
+Pass `--contract-id`, `--rpc-url`, `--network-passphrase` and the secret key
+together with `--dry-run` to simulate one representative `add_to_denylist`
+transaction (nothing is signed or submitted). The fee is multiplied by the
+number of pending writes and reported both in the log output and as
+`feeEstimate` (`pendingWrites`, `perTxFeeStroops`, `totalFeeStroops`,
+`totalFeeXlm`) in the JSON report. A simulation failure is reported as
+`feeEstimate.error` and does not fail the dry-run. Programmatically, pass
+`feeEstimator: createRpcFeeEstimator({...})` to `syncSanctionsToDenylist`.
+
+### Scheduled syncs
+
+See [`docs/deploy/`](../docs/deploy/README.md) for a Kubernetes CronJob and a
+systemd service + timer.
 
 ## Troubleshooting
 
