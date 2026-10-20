@@ -156,7 +156,7 @@ export class HorizonListener {
       const pollSpan = this.tracer.startSpan('rpc_poll');
       pollSpan.setAttribute('poll.attempt', this.attempt);
 
-      let response: { events: RawContractEvent[]; nextCursor: string };
+      let response: { events: RawContractEvent[]; nextCursor: string; latestLedger?: number };
       const pollStart = Date.now();
       try {
         response = await this.eventSource.getEvents(this.cursor);
@@ -274,6 +274,14 @@ export class HorizonListener {
       }
 
       this.cursor = response.nextCursor;
+
+      if (response.latestLedger != null) {
+        // An empty page means we have caught up to the chain head.
+        const processed = response.events.length
+          ? response.events[response.events.length - 1].ledger
+          : response.latestLedger;
+        this.metrics.setLedgerLag(Math.max(0, response.latestLedger - processed));
+      }
       this.logger.debug('horizon-listener: cursor advanced', this.cursor);
 
       if (this.backfilling) {

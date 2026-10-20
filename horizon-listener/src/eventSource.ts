@@ -60,7 +60,7 @@ export interface RawContractEvent {
 export interface EventSource {
   getEvents(
     cursor: string | undefined,
-  ): Promise<{ events: RawContractEvent[]; nextCursor: string }>;
+  ): Promise<{ events: RawContractEvent[]; nextCursor: string; latestLedger?: number }>;
 }
 
 export interface RpcEventSourceOptions {
@@ -113,7 +113,7 @@ export class RpcEventSource implements EventSource {
 
   async getEvents(
     cursor: string | undefined,
-  ): Promise<{ events: RawContractEvent[]; nextCursor: string }> {
+  ): Promise<{ events: RawContractEvent[]; nextCursor: string; latestLedger?: number }> {
     if (!cursor && this.options.startLedger == null) {
       throw new Error(
         'horizon-listener: RpcEventSource requires `startLedger` for the first cursor-less ' +
@@ -170,6 +170,8 @@ export class RpcEventSource implements EventSource {
     const nextCursor =
       responseCursor ?? (events.length > 0 ? events[events.length - 1].id : (cursor ?? ''));
 
-    return { events, nextCursor };
+    const latestLedger = (response as unknown as { latestLedger?: number }).latestLedger;
+
+    return { events, nextCursor, latestLedger };
   }
 }
