@@ -86,6 +86,8 @@ See [CHANGELOG.md](./CHANGELOG.md) for release notes and version history.
 ## Contributing
 
 Contributions welcome — see [CONTRIBUTING.md](./CONTRIBUTING.md) for setup and workflow details.
+New to the Stellar ecosystem? Check the [Glossary](./docs/glossary.md) for definitions of
+common terms like StrKey, SEP-10, muxed account, ScVal, and network passphrase.
 This repo participates in the [Drips Wave](https://www.drips.network/) Stellar Program and is
 deliberately kept full of small, well-scoped issues. Open issues are labeled by complexity
 (`complexity: trivial`, `complexity: medium`, `complexity: high`) so you can pick work that
