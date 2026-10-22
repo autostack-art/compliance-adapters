@@ -225,37 +225,8 @@ See [CHANGELOG.md](./CHANGELOG.md) for release notes and version history.
 ## Contributing
 
 Contributions welcome — see [CONTRIBUTING.md](./CONTRIBUTING.md) for setup and workflow details.
-
-## Release tooling
-
-This monorepo uses Changesets for coordinated package releases and changelog generation.
-
-To create a release note for changed packages:
-
-```bash
-npm run changeset
-```
-
-Then to version packages and generate changelog entries:
-
-```bash
-npm run version
-```
-
-After review, prepare the root changelog entry before publishing:
-
-1. Move the notes under `[Unreleased]` in [`CHANGELOG.md`](./CHANGELOG.md) into a dated heading matching the version in the root `package.json`.
-2. Leave `[Unreleased]` empty.
-3. Run the release check and publish:
-
-```bash
-npm run check:changelog
-npm run release
-```
-
-The release command repeats the check so a release cannot be published without a matching root
-changelog entry. Changesets will manage consistent version bumps across `sep10-auth`,
-`sanctions-oracle`, and `horizon-listener`.
+New to the Stellar ecosystem? Check the [Glossary](./docs/glossary.md) for definitions of
+common terms like StrKey, SEP-10, muxed account, ScVal, and network passphrase.
 This repo participates in the [Drips Wave](https://www.drips.network/) Stellar Program and is
 deliberately kept full of small, well-scoped issues. Open issues are labeled by complexity
 (`complexity: trivial`, `complexity: medium`, `complexity: high`) so you can pick work that
