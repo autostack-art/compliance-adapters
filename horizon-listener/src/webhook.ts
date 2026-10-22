@@ -9,6 +9,13 @@ import type { RawContractEvent } from './eventSource';
 import { type AnyMetricsRegistry, NoopMetricsRegistry } from './metrics';
 import { type AnyTracer, NoopTracer, type TracingContext } from './tracing';
 
+/**
+ * Version of the webhook payload shape. Sent as the
+ * `X-Compliance-Schema-Version` header and the `schemaVersion` body field.
+ * Bumped only on breaking payload changes; see the README versioning policy.
+ */
+export const WEBHOOK_SCHEMA_VERSION = 1;
+
 export interface WebhookSender {
   send(event: RawContractEvent): Promise<void>;
 }
@@ -243,10 +250,11 @@ export class HttpWebhookSender implements WebhookSender {
     span.setAttribute('event.id', eventIds.join(','));
     if (eventIds.length > 1) span.setAttribute('webhook.batch_size', eventIds.length);
 
-    // Inject traceparent into outbound request headers for downstream correlation
-    const traceparent = span.traceId
-      ? this.tracer.injectContext({ traceId: span.traceId, spanId: span.spanId })
-      : undefined;
+    // Inject W3C traceparent for downstream correlation (disable via propagateTraceContext: false).
+    const traceparent =
+      this.propagateTraceContext && span.traceId
+        ? this.tracer.injectContext({ traceId: span.traceId, spanId: span.spanId })
+        : undefined;
     if (traceparent) {
       headers['traceparent'] = traceparent;
     }
@@ -274,13 +282,16 @@ export class HttpWebhookSender implements WebhookSender {
             headers,
             body,
             signal: controller?.signal,
-          });
+            ...(this.dispatcher ? { dispatcher: this.dispatcher } : {}),
+          } as RequestInit);
 
           const durationMs = Date.now() - start;
 
           if (!response.ok) {
+            const errorBody = await readErrorBody(response);
             throw new WebhookHttpError(
-              `horizon-listener: webhook POST to ${this.url} failed with status ${response.status}`,
+              `horizon-listener: webhook POST to ${this.url} failed with status ${response.status}` +
+                (errorBody ? `: ${errorBody}` : ''),
               response.status,
             );
           }

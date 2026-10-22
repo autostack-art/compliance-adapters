@@ -4,6 +4,47 @@
  */
 
 import { rpc } from '@stellar/stellar-sdk';
+import { type AnyMetricsRegistry, NoopMetricsRegistry } from './metrics';
+
+/**
+ * Raised when the requested cursor/startLedger points at history the RPC node
+ * has already pruned (i.e. it falls outside the node's retention window).
+ * Retrying the same request can never succeed, so the listener stops (or, with
+ * `onGap: 'skipToOldest'`, resumes from `oldestAvailable`).
+ */
+export class CursorOutOfRangeError extends Error {
+  readonly requested: string | number | undefined;
+  readonly oldestAvailable: number | undefined;
+
+  constructor(requested: string | number | undefined, oldestAvailable: number | undefined, cause?: unknown) {
+    super(
+      `horizon-listener: requested ${requested ?? 'position'} is outside the RPC retention window` +
+        (oldestAvailable != null ? ` (oldest available ledger: ${oldestAvailable})` : ''),
+    );
+    this.name = 'CursorOutOfRangeError';
+    this.requested = requested;
+    this.oldestAvailable = oldestAvailable;
+    if (cause !== undefined) (this as { cause?: unknown }).cause = cause;
+  }
+}
+
+const OUT_OF_RANGE_PATTERN = /out of range|ledger range|outside (of )?the (retention|ledger)|pruned|older than the oldest/i;
+
+/**
+ * Converts a Soroban RPC "out of range" error into a {@link CursorOutOfRangeError};
+ * returns undefined for any other error.
+ */
+export function toCursorOutOfRangeError(
+  err: unknown,
+  requested: string | number | undefined,
+): CursorOutOfRangeError | undefined {
+  if (err instanceof CursorOutOfRangeError) return err;
+  const e = err as { message?: unknown; code?: unknown; response?: { data?: { error?: { message?: unknown } } } };
+  const message = String(e?.response?.data?.error?.message ?? e?.message ?? err ?? '');
+  if (!OUT_OF_RANGE_PATTERN.test(message)) return undefined;
+  const range = /(\d+)\s*-\s*(\d+)/.exec(message);
+  return new CursorOutOfRangeError(requested, range ? Number(range[1]) : undefined, err);
+}
 
 /**
  * A normalised representation of a single Soroban contract event as returned
@@ -64,7 +105,22 @@ export interface EventSource {
 }
 
 export interface RpcEventSourceOptions {
-  rpcUrl: string;
+  /** Single RPC endpoint. Either `rpcUrl` or `rpcUrls` is required. */
+  rpcUrl?: string;
+  /**
+   * Ordered list of RPC endpoints for failover. The first entry is the
+   * primary; after `failoverAfter` consecutive failures the source rotates to
+   * the next URL (the listener's cursor is kept, so no events are skipped).
+   */
+  rpcUrls?: string[];
+  /** Consecutive failures on one URL before rotating to the next. @default 3 */
+  failoverAfter?: number;
+  /** How long to stay on a fallback before retrying the primary. @default 60000 */
+  primaryCooldownMs?: number;
+  /** Called whenever the active URL changes. */
+  onFailover?: (from: string, to: string) => void;
+  /** Records an `rpc_failover` counter increment on every rotation. */
+  metrics?: AnyMetricsRegistry;
   networkPassphrase: string;
   contractIds: string[];
   // Soroban RPC requires a starting ledger for the very first (cursor-less)
@@ -77,7 +133,23 @@ export interface RpcEventSourceOptions {
   // If the call takes longer than this, it will be rejected.
   // Left undefined, no timeout is applied (relies on SDK's default).
   timeoutMs?: number;
+  /**
+   * Optional topic filters passed through to Soroban RPC `getEvents`. Each
+   * filter is an array of 1-4 topic segments (base64 XDR `ScVal` strings),
+   * where `*` matches any single segment. Events matching any filter are
+   * returned. Left undefined, all topics are returned.
+   */
+  topics?: string[][];
+  /**
+   * Which event types to request: `contract` (default), `system`,
+   * `diagnostic`, or `all` (no type restriction).
+   */
+  eventType?: RpcEventType;
 }
+
+export type RpcEventType = 'contract' | 'system' | 'diagnostic' | 'all';
+
+const EVENT_TYPES: readonly RpcEventType[] = ['contract', 'system', 'diagnostic', 'all'];
 
 // Real Soroban RPC request/response shapes vary slightly by SDK minor version and
 // require live network access to validate, so this class is intentionally kept out
@@ -91,24 +163,80 @@ type GetEventsResponse = Awaited<ReturnType<rpc.Server['getEvents']>>;
 
 export class RpcEventSource implements EventSource {
   private readonly options: RpcEventSourceOptions;
-  private server: rpc.Server | undefined;
+  private readonly rpcUrls: string[];
+  private readonly servers = new Map<string, rpc.Server>();
+  private readonly metrics: AnyMetricsRegistry;
+  private startLedger: number | undefined;
+  private urlIndex = 0;
+  private consecutiveFailures = 0;
+  private failedOverAt = 0;
 
   constructor(options: RpcEventSourceOptions) {
+    this.rpcUrls = options.rpcUrls?.length ? options.rpcUrls : options.rpcUrl ? [options.rpcUrl] : [];
+    if (this.rpcUrls.length === 0) {
+      throw new Error('horizon-listener: RpcEventSource requires `rpcUrl` or a non-empty `rpcUrls` array');
+    }
+    this.metrics = options.metrics ?? new NoopMetricsRegistry();
+    this.startLedger = options.startLedger;
     if (options.contractIds.length === 0) {
       throw new Error(
         'horizon-listener: RpcEventSource requires at least one contract ID (contractIds array cannot be empty)',
       );
     }
+    if (options.topics !== undefined) {
+      if (!Array.isArray(options.topics)) {
+        throw new Error('horizon-listener: RpcEventSource `topics` must be an array of topic filters');
+      }
+      options.topics.forEach((filter, i) => {
+        if (
+          !Array.isArray(filter) ||
+          filter.length === 0 ||
+          filter.length > 4 ||
+          !filter.every((segment) => typeof segment === 'string' && segment.length > 0)
+        ) {
+          throw new Error(
+            `horizon-listener: RpcEventSource invalid topic filter at index ${i} ` +
+              '(expected 1-4 non-empty string segments; use "*" as a wildcard)',
+          );
+        }
+      });
+    }
+    if (options.eventType !== undefined && !EVENT_TYPES.includes(options.eventType)) {
+      throw new Error(
+        `horizon-listener: RpcEventSource invalid eventType "${String(options.eventType)}" ` +
+          `(expected one of ${EVENT_TYPES.join(', ')})`,
+      );
+    }
     this.options = options;
   }
 
-  private getServer(): rpc.Server {
-    if (!this.server) {
-      this.server = new rpc.Server(this.options.rpcUrl, {
-        allowHttp: this.options.rpcUrl.startsWith('http://'),
-      });
+  /** Builds the `filters` array sent with every getEvents request. */
+  buildFilters(): Record<string, unknown>[] {
+    const eventType = this.options.eventType ?? 'contract';
+    const filter: Record<string, unknown> = { contractIds: this.options.contractIds };
+    if (eventType !== 'all') filter.type = eventType;
+    if (this.options.topics && this.options.topics.length > 0) {
+      filter.topics = this.options.topics;
     }
-    return this.server;
+    return [filter];
+  }
+
+  private getServer(): rpc.Server {
+    const url = this.activeRpcUrl;
+    let server = this.servers.get(url);
+    if (!server) {
+      server = new rpc.Server(url, { allowHttp: url.startsWith('http://') });
+      this.servers.set(url, server);
+    }
+    return server;
+  }
+
+  private switchTo(index: number): void {
+    const from = this.activeRpcUrl;
+    this.urlIndex = index;
+    this.consecutiveFailures = 0;
+    this.metrics.counter.inc('rpc_failover', 'success');
+    this.options.onFailover?.(from, this.activeRpcUrl);
   }
 
   async getEvents(
@@ -128,11 +256,11 @@ export class RpcEventSource implements EventSource {
       cursor
         ? {
             cursor,
-            filters: [{ type: 'contract', contractIds: this.options.contractIds }],
+            filters: this.buildFilters(),
           }
         : {
             startLedger: this.options.startLedger,
-            filters: [{ type: 'contract', contractIds: this.options.contractIds }],
+            filters: this.buildFilters(),
           }
     ) as GetEventsRequest;
 
