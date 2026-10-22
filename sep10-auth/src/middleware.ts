@@ -9,6 +9,7 @@ import { type Logger, noopLogger } from '@compliance-adapters/logger';
 import { verifyChallenge, VerifyChallengeOptions } from './verify';
 import { RevocationStore } from './revocation';
 import { assertBareDomain } from './challenge';
+import { makeErrorBody } from './errors';
 
 declare global {
   namespace Express {
@@ -162,6 +163,11 @@ export type AuthenticateRequestResult =
       logContext?: Record<string, unknown>;
     };
 
+/** Builds an RFC 6750 §3 `WWW-Authenticate` header value. */
+function buildWwwAuthenticate(realm: string, error: BearerErrorCode): string {
+  return `Bearer realm="${realm}", error="${error}"`;
+}
+
 /**
  * Validates the middleware options once at construction time and returns the
  * normalised home domains. Shared by every framework adapter.
@@ -253,7 +259,9 @@ export async function verifyRequestHeaders(
     );
   }
 
-  return { ok: true, address: result.address, jti: result.jti };
+  return result.jti !== undefined
+    ? { ok: true, address: result.address, jti: result.jti }
+    : { ok: true, address: result.address };
 }
 
 /**
@@ -270,8 +278,9 @@ export async function applyRevocationStore(
     return result;
   }
 
+  const realm = Array.isArray(options.homeDomains) ? options.homeDomains[0] : options.homeDomains;
+
   if (await options.revocationStore.isRevoked(result.address)) {
-    const realm = Array.isArray(options.homeDomains) ? options.homeDomains[0] : options.homeDomains;
     return {
       ok: false,
       error: 'invalid_token',
@@ -280,6 +289,19 @@ export async function applyRevocationStore(
       logMessage: 'sep10-auth: address is revoked',
       logContext: { address: result.address },
     };
+  }
+
+  if (result.jti !== undefined && options.revocationStore.isTokenRevoked) {
+    if (await options.revocationStore.isTokenRevoked(result.jti)) {
+      return {
+        ok: false,
+        error: 'invalid_token',
+        reason: 'token revoked',
+        wwwAuthenticate: buildWwwAuthenticate(realm, 'invalid_token'),
+        logMessage: 'sep10-auth: token is revoked',
+        logContext: { address: result.address, jti: result.jti },
+      };
+    }
   }
 
   return result;
@@ -316,7 +338,37 @@ export function createSep10Middleware(options: Sep10MiddlewareOptions): RequestH
   // ── Request handler ─────────────────────────────────────────────────────────
 
   return async (req, res, next) => {
-    let result = await verifyRequestHeaders({ authorization: req.header('Authorization') }, options);
+    const rawToken: ParseBearerTokenResult = options.getToken
+      ? parseCustomToken(options.getToken(req))
+      : parseBearerToken(req.header('Authorization') ?? '');
+
+    // Use verifyRequestHeaders with the already-parsed token by constructing a
+    // synthetic headers object, or delegate directly to the header-based path.
+    let result: AuthenticateRequestResult;
+
+    if (options.getToken) {
+      // Custom extractor: build a synthetic headers object so verifyRequestHeaders
+      // can receive the token without an Authorization header.
+      if (!rawToken.ok) {
+        const realm = Array.isArray(options.homeDomains)
+          ? options.homeDomains[0]
+          : options.homeDomains;
+        result = {
+          ok: false,
+          error: 'invalid_request',
+          reason: rawToken.reason,
+          wwwAuthenticate: buildWwwAuthenticate(realm, 'invalid_request'),
+          logMessage: 'sep10-auth: missing or malformed bearer token',
+        };
+      } else {
+        result = verifyRequestHeaders(
+          { authorization: `Bearer ${rawToken.token}` },
+          options,
+        );
+      }
+    } else {
+      result = verifyRequestHeaders({ authorization: req.header('Authorization') }, options);
+    }
 
     if (result.ok && options.revocationStore) {
       try {
@@ -329,27 +381,31 @@ export function createSep10Middleware(options: Sep10MiddlewareOptions): RequestH
     }
 
     if (!result.ok) {
-      logger.warn('sep10-auth: challenge verification failed', { reason: result.reason });
-      res.status(401).json({ error: 'unauthorized', reason: result.reason });
-      res.set('WWW-Authenticate', result.wwwAuthenticate);
+      // Map the internal reason to a Sep10ErrorCode
+      let code: import('./errors').Sep10ErrorCode;
+      if (result.reason === 'address revoked' || result.reason === 'token revoked') {
+        code = 'token_revoked';
+      } else if (result.reason === 'bearer token too large') {
+        code = 'token_too_large';
+      } else if (result.reason === 'malformed bearer token') {
+        code = 'malformed_token';
+      } else if (result.error === 'invalid_request') {
+        code = 'missing_token';
+      } else {
+        code = 'invalid_token';
+      }
+
+      logger.warn(result.logMessage, {
+        ...result.logContext,
+        ip: req.ip,
+        path: req.path,
+      });
+
+      res
+        .status(401)
+        .set('WWW-Authenticate', result.wwwAuthenticate)
+        .json(makeErrorBody('unauthorized', code, { reason: result.reason }));
       return;
-    }
-
-    if (options.revocationStore && result.jti !== undefined && options.revocationStore.isTokenRevoked) {
-      let tokenRevoked: boolean;
-      try {
-        tokenRevoked = await options.revocationStore.isTokenRevoked(result.jti);
-      } catch (error) {
-        logger.error('sep10-auth: revocation store lookup failed', error);
-        next(error);
-        return;
-      }
-
-      if (tokenRevoked) {
-        logger.warn('sep10-auth: token is revoked', { address: result.address, jti: result.jti });
-        res.status(401).json({ error: 'unauthorized', reason: 'token revoked' });
-        return;
-      }
     }
 
     logger.debug('sep10-auth: request authenticated', { address: result.address, path: req.path });

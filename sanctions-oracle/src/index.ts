@@ -5,7 +5,7 @@
 
 export { SanctionsProvider, CheckResult } from './SanctionsProvider';
 export { MockSanctionsProvider, MOCK_FLAGGED_ADDRESSES } from './mockProvider';
-export { CsvSanctionsProvider } from './csvProvider';
+export { CsvSanctionsProvider, parseCsv } from './csvProvider';
 export {
   syncSanctionsToDenylist,
   createRpcDenylistWriter,
@@ -26,16 +26,8 @@ export {
   FeeEstimate,
   RpcFeeEstimatorOptions,
 } from './sync';
-export { type Signer, KeypairSigner, toSigner, signTransaction } from './signer';
-export {
-  CircuitBreakerSanctionsProvider,
-  CircuitOpenError,
-  CIRCUIT_STATE_VALUES,
-  PROVIDER_CIRCUIT_STATE_METRIC,
-  type CircuitState,
-  type CircuitBreakerOptions,
-} from './circuitBreakerProvider';
-export { SyncCheckpointStore, InMemoryCheckpointStore } from './checkpoint';
+export { SyncCheckpointStore, InMemoryCheckpointStore, FileCheckpointStore } from './checkpoint';
+export { createJsonlAuditLogger, JsonlAuditLoggerOptions } from './auditLog';
 export { withRetry, RetryOptions } from './retry';
 export {
   ProviderRegistry,

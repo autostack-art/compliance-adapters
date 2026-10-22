@@ -61,12 +61,7 @@ export interface RawContractEvent {
 export interface EventSource {
   getEvents(
     cursor: string | undefined,
-  ): Promise<{ events: RawContractEvent[]; nextCursor: string }>;
-  /**
-   * Optional: restart cursor-less reads from `ledger`. Used by the listener's
-   * `onGap: 'skipToOldest'` recovery after a {@link CursorOutOfRangeError}.
-   */
-  resetToLedger?(ledger: number): void;
+  ): Promise<{ events: RawContractEvent[]; nextCursor: string; latestLedger?: number }>;
 }
 
 export interface RpcEventSourceOptions {
@@ -108,6 +103,10 @@ export interface RpcEventSourceOptions {
   decode?: EventDecodeMode;
 }
 
+export type RpcEventType = 'contract' | 'system' | 'diagnostic' | 'all';
+
+const EVENT_TYPES: readonly RpcEventType[] = ['contract', 'system', 'diagnostic', 'all'];
+
 // Real Soroban RPC request/response shapes vary slightly by SDK minor version and
 // require live network access to validate, so this class is intentionally kept out
 // of the unit test suite (EventSource above is the seam the rest of the package
@@ -140,16 +139,42 @@ export class RpcEventSource implements EventSource {
         'horizon-listener: RpcEventSource requires at least one contract ID (contractIds array cannot be empty)',
       );
     }
+    if (options.topics !== undefined) {
+      if (!Array.isArray(options.topics)) {
+        throw new Error('horizon-listener: RpcEventSource `topics` must be an array of topic filters');
+      }
+      options.topics.forEach((filter, i) => {
+        if (
+          !Array.isArray(filter) ||
+          filter.length === 0 ||
+          filter.length > 4 ||
+          !filter.every((segment) => typeof segment === 'string' && segment.length > 0)
+        ) {
+          throw new Error(
+            `horizon-listener: RpcEventSource invalid topic filter at index ${i} ` +
+              '(expected 1-4 non-empty string segments; use "*" as a wildcard)',
+          );
+        }
+      });
+    }
+    if (options.eventType !== undefined && !EVENT_TYPES.includes(options.eventType)) {
+      throw new Error(
+        `horizon-listener: RpcEventSource invalid eventType "${String(options.eventType)}" ` +
+          `(expected one of ${EVENT_TYPES.join(', ')})`,
+      );
+    }
     this.options = options;
   }
 
-  /** The RPC URL currently in use. */
-  get activeRpcUrl(): string {
-    return this.rpcUrls[this.urlIndex];
-  }
-
-  resetToLedger(ledger: number): void {
-    this.startLedger = ledger;
+  /** Builds the `filters` array sent with every getEvents request. */
+  buildFilters(): Record<string, unknown>[] {
+    const eventType = this.options.eventType ?? 'contract';
+    const filter: Record<string, unknown> = { contractIds: this.options.contractIds };
+    if (eventType !== 'all') filter.type = eventType;
+    if (this.options.topics && this.options.topics.length > 0) {
+      filter.topics = this.options.topics;
+    }
+    return [filter];
   }
 
   private getServer(): rpc.Server {
@@ -172,31 +197,8 @@ export class RpcEventSource implements EventSource {
 
   async getEvents(
     cursor: string | undefined,
-  ): Promise<{ events: RawContractEvent[]; nextCursor: string }> {
-    // Return to a healthy primary once the cooldown has elapsed.
-    if (this.urlIndex !== 0 && Date.now() - this.failedOverAt >= (this.options.primaryCooldownMs ?? 60_000)) {
-      this.switchTo(0);
-    }
-    try {
-      const result = await this.fetchEvents(cursor);
-      this.consecutiveFailures = 0;
-      return result;
-    } catch (err) {
-      const gapErr = toCursorOutOfRangeError(err, cursor ?? this.startLedger);
-      if (gapErr) throw gapErr;
-      this.consecutiveFailures += 1;
-      if (this.rpcUrls.length > 1 && this.consecutiveFailures >= (this.options.failoverAfter ?? 3)) {
-        this.failedOverAt = Date.now();
-        this.switchTo((this.urlIndex + 1) % this.rpcUrls.length);
-      }
-      throw err;
-    }
-  }
-
-  private async fetchEvents(
-    cursor: string | undefined,
-  ): Promise<{ events: RawContractEvent[]; nextCursor: string }> {
-    if (!cursor && this.startLedger == null) {
+  ): Promise<{ events: RawContractEvent[]; nextCursor: string; latestLedger?: number }> {
+    if (!cursor && this.options.startLedger == null) {
       throw new Error(
         'horizon-listener: RpcEventSource requires `startLedger` for the first cursor-less ' +
           "getEvents call. Pass a recent ledger within the RPC node's event retention window " +
@@ -210,11 +212,11 @@ export class RpcEventSource implements EventSource {
       cursor
         ? {
             cursor,
-            filters: [{ type: 'contract', contractIds: this.options.contractIds }],
+            filters: this.buildFilters(),
           }
         : {
-            startLedger: this.startLedger,
-            filters: [{ type: 'contract', contractIds: this.options.contractIds }],
+            startLedger: this.options.startLedger,
+            filters: this.buildFilters(),
           }
     ) as GetEventsRequest;
 
@@ -258,6 +260,8 @@ export class RpcEventSource implements EventSource {
     const nextCursor =
       responseCursor ?? (events.length > 0 ? events[events.length - 1].id : (cursor ?? ''));
 
-    return { events, nextCursor };
+    const latestLedger = (response as unknown as { latestLedger?: number }).latestLedger;
+
+    return { events, nextCursor, latestLedger };
   }
 }

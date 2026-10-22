@@ -308,6 +308,41 @@ If `signingSecret` is omitted, `HttpWebhookSender` sends requests without
 `X-Timestamp` or `X-Signature` headers, exactly as before this feature was
 added.
 
+### Secret rotation runbook
+
+`signingSecret` also accepts an array. Every entry signs the request, and the
+signatures are sent comma-separated (`X-Signature: sha256=<new>,sha256=<old>`).
+Receivers can use the exported `verifyWebhookSignature(rawBody, timestamp,
+signatureHeader, secrets)` helper, which accepts a list of secrets.
+
+1. Receiver: accept both secrets, e.g. `verifyWebhookSignature(body, ts, sig, [NEW, OLD])`.
+2. Sender: switch to `signingSecret: [NEW, OLD]` (new is primary).
+3. Once all receivers trust `NEW`, set `signingSecret: NEW` on the sender.
+4. Receiver: drop `OLD` from its list.
+
+No delivery fails at any step, because there is always a signature the
+receiver accepts.
+
+## Idempotency-Key header
+
+Every delivery carries `Idempotency-Key: <event.id>`. The value is the same on
+every retry of one event, so receivers can deduplicate on it. Batched
+deliveries use a stable SHA-256-derived key over the batch's event ids.
+
+## Batched deliveries
+
+Batching is opt-in:
+
+```ts
+const sender = new HttpWebhookSender({ url, batchSize: 50, batchMaxWaitMs: 500 });
+```
+
+With `batchSize > 1`, events are buffered and POSTed as `{ "events": [...] }`
+when the buffer reaches `batchSize` or `batchMaxWaitMs` elapses. The signature
+covers the whole body and the batch is retried as a unit; each `send()`
+promise settles with its batch. Call `await sender.stop()` (or `flush()`) on
+shutdown to deliver any partial batch.
+
 ## Reconnect / backoff behavior
 
 If `eventSource.getEvents(...)` throws (RPC unreachable, rate-limited, cursor
@@ -420,6 +455,9 @@ The exported metric names are prefixed with the value from `prefix` (default:
 - `${prefix}_duration_ms_bucket{phase="...",le="..."}`
 - `${prefix}_duration_ms_sum{phase="..."}`
 - `${prefix}_duration_ms_count{phase="..."}`
+- `${prefix}_ledger_lag` — gauge: `latestLedger` from the latest `getEvents`
+  response minus the ledger of the last processed event (0 when caught up).
+  Updated on every successful poll; the main SLO signal for pipeline freshness.
 
 ### Scraping example
 

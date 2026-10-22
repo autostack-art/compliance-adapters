@@ -1065,9 +1065,21 @@ export interface CliArgs {
   reconcile?: boolean;
   /** Path to a JSON array of the addresses currently on the denylist (the last snapshot). */
   denylistSnapshotPath?: string;
-  /** Hard deadline for the run in milliseconds (`--max-duration`). */
-  maxDurationMs?: number;
+  /** Print only the JSON SyncResult on stdout; route all logs to stderr. */
+  json?: boolean;
+  /** Path to an append-only JSONL file that records every denylist write. */
+  auditLogPath?: string;
+  /** Path to a checkpoint file; addresses completed by a prior run are skipped. */
+  checkpointPath?: string;
 }
+
+/** Logger that writes every level to stderr, keeping stdout clean for `--json`. */
+const stderrLogger: Logger = {
+  debug: (...args: unknown[]) => console.error(...args),
+  info: (...args: unknown[]) => console.error(...args),
+  warn: (...args: unknown[]) => console.error(...args),
+  error: (...args: unknown[]) => console.error(...args),
+};
 
 /**
  * Returns a copy of `args` safe for logging, with `secretKey` masked.
@@ -1140,6 +1152,17 @@ export function parseArgs(argv: string[]): CliArgs {
         args.denylistSnapshotPath = readValue(arg, i);
         i += 1;
         break;
+      case '--json':
+        args.json = true;
+        break;
+      case '--audit-log':
+        args.auditLogPath = readValue(arg, i);
+        i += 1;
+        break;
+      case '--checkpoint':
+        args.checkpointPath = readValue(arg, i);
+        i += 1;
+        break;
       case '--help':
       case '-h':
         args.help = true;
@@ -1182,6 +1205,9 @@ OPTIONS:
   --denylist-snapshot <path>  Path to JSON file containing an array of the addresses currently
                                on the denylist
   --dry-run                   Preview output without writing to the contract
+  --json                      Print only the JSON SyncResult on stdout; logs go to stderr
+  --audit-log <path>          Append one JSON line per denylist write to <path>
+  --checkpoint <path>         Persist completed addresses to <path> and skip them on re-run
   --help, -h                  Show this help message
 
 ENVIRONMENT:
@@ -1205,10 +1231,10 @@ EXAMPLES:
 export async function runCli(argv?: string[]): Promise<void> {
   // The CLI entrypoint uses consoleLogger so dry-run output and errors are
   // visible by default; programmatic callers should inject their own logger.
-  const logger = consoleLogger;
-
   const processArgv = argv ?? process.argv.slice(2);
   const args = parseArgs(processArgv);
+  // --json reserves stdout for the single JSON SyncResult.
+  const logger = args.json ? stderrLogger : consoleLogger;
 
   if (args.help) {
     printHelp();
@@ -1281,7 +1307,7 @@ export async function runCli(argv?: string[]): Promise<void> {
       provider = (imported.default ?? imported) as SanctionsProvider;
     } catch (error) {
       const message = error instanceof Error ? error.message : String(error);
-      console.error(`Failed to load provider module ${args.providerModulePath}: ${message}`);
+      logger.error(`Failed to load provider module ${args.providerModulePath}: ${message}`);
       process.exitCode = 1;
       return;
     }
@@ -1351,6 +1377,11 @@ export async function runCli(argv?: string[]): Promise<void> {
     return;
   }
 
+  // Checkpoints only apply to live syncs; a dry run never marks addresses done.
+  const checkpoint = args.checkpointPath
+    ? new FileCheckpointStore(args.checkpointPath, logger)
+    : undefined;
+
   const writer = createRpcDenylistWriter({
     rpcUrl: args.rpcUrl,
     networkPassphrase: args.networkPassphrase,
@@ -1376,6 +1407,8 @@ export async function runCli(argv?: string[]): Promise<void> {
     logger,
     currentDenylist,
     reconcile: args.reconcile,
+    checkpoint,
+    resume: Boolean(checkpoint),
   });
   // CLI-only: machine-readable result to stdout (see dry-run branch above).
   // eslint-disable-next-line no-console

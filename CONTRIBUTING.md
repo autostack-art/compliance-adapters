@@ -20,6 +20,9 @@ starting work, and comment on an issue to claim it so we don't get duplicate PRs
 
 ## Getting started
 
+New to the Stellar ecosystem? Check the [Glossary](./docs/glossary.md) for definitions of common
+terms like StrKey, SEP-10, muxed account, ScVal, and network passphrase before diving in.
+
 ```bash
 git clone https://github.com/stellar-compliance-kit/compliance-adapters.git
 cd compliance-adapters

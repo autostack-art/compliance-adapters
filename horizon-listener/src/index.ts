@@ -18,6 +18,7 @@ export {
   type EventSource,
   type RawContractEvent,
   type RpcEventSourceOptions,
+  type RpcEventType,
 } from './eventSource';
 export {
   toJsonSafe,
@@ -36,7 +37,7 @@ export {
   type ReplayDeadLetterQueueResult,
 } from './deadLetterQueue';
 export { computeBackoffDelayMs, type BackoffOptions } from '@compliance-adapters/backoff';
-export { HttpWebhookSender, WebhookHttpError, type WebhookSender, type HttpWebhookSenderOptions } from './webhook';
+export { HttpWebhookSender, WebhookHttpError, verifyWebhookSignature, type WebhookSender, type HttpWebhookSenderOptions } from './webhook';
 export { createWebhookForwarder, type WebhookForwarderOptions } from './factory';
 export {
   MetricsRegistry,
