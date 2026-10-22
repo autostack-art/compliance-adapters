@@ -1,0 +1,35 @@
+{
+  "name": "sep10-sanctions-gate",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Example: Express route gated by SEP-10 auth + sanctions oracle check",
+  "main": "dist/server.js",
+  "engines": {
+    "node": ">=20.0.0"
+  },
+  "scripts": {
+    "build": "tsc -p .",
+    "start": "node dist/server.js",
+    "dev": "ts-node src/server.ts",
+    "test": "jest"
+  },
+  "dependencies": {
+    "express": "^4.19.0",
+    "sep10-auth": "*",
+    "sanctions-oracle": "*"
+  },
+  "devDependencies": {
+    "typescript": "^5.5.4",
+    "ts-node": "^10.9.2",
+    "jest": "^29.7.0",
+    "ts-jest": "^29.2.4",
+    "@types/jest": "^29.5.12",
+    "@types/node": "^20.14.0",
+    "@types/express": "^4.17.21",
+    "supertest": "^7.0.0",
+    "@types/supertest": "^6.0.2",
+    "babel-jest": "^29.7.0",
+    "@babel/core": "^7.25.2",
+    "@babel/preset-env": "^7.25.4"
+  }
+}

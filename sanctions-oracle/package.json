@@ -4,6 +4,10 @@
   "private": true,
   "main": "dist/index.js",
   "types": "dist/index.d.ts",
+  "files": [
+    "dist",
+    "README.md"
+  ],
   "bin": {
     "sanctions-sync": "dist/sync.js"
   },
@@ -12,10 +16,16 @@
   },
   "scripts": {
     "build": "tsc -p .",
+    "typecheck": "tsc -p . --noEmit",
     "test": "jest"
   },
   "dependencies": {
-    "@stellar/stellar-sdk": "^16.0.1"
+    "@stellar/stellar-sdk": "^16.0.1",
+    "@compliance-adapters/backoff": "*",
+    "@compliance-adapters/logger": "*",
+    "@compliance-adapters/metrics": "*",
+    "@compliance-adapters/shared": "*",
+    "@compliance-adapters/tracing-types": "*"
   },
   "devDependencies": {
     "typescript": "^5.5.4",
@@ -25,6 +35,7 @@
     "@types/node": "^20.14.0",
     "babel-jest": "^29.7.0",
     "@babel/core": "^7.25.2",
-    "@babel/preset-env": "^7.25.4"
+    "@babel/preset-env": "^7.25.4",
+    "fast-check": "4.9.0"
   }
 }

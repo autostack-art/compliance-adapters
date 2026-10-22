@@ -1,0 +1,4 @@
+{
+  "benchmark": "sep10-auth-generate-challenge-throughput",
+  "opsPerSecond": 900
+}

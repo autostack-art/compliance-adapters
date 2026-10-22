@@ -1,0 +1,34 @@
+# CODEOWNERS file for the compliance-adapters repository
+# This file specifies which maintainers should review PRs that touch specific packages.
+# For more information about CODEOWNERS, see:
+# https://docs.github.com/en/repositories/managing-your-repositorys-settings-and-features/customizing-your-repository/about-code-owners
+
+# Root tooling and configuration
+* @Lynndabel @MooreTheAnalyst @akprinciple
+
+# SEP-10 Authentication adapter package
+/sep10-auth/ @akprinciple
+
+# Sanctions Oracle adapter package
+/sanctions-oracle/ @MooreTheAnalyst
+
+# Horizon Listener adapter package
+/horizon-listener/ @Lynndabel
+
+# Shared logger package
+/logger/ @MooreTheAnalyst @akprinciple @Lynndabel
+
+# Shared tracing-types package
+/tracing-types/ @MooreTheAnalyst @akprinciple @Lynndabel
+
+# Shared backoff package
+/backoff/ @MooreTheAnalyst @akprinciple @Lynndabel
+
+# Shared metrics package
+/metrics/ @MooreTheAnalyst @akprinciple @Lynndabel
+
+# Shared tracing package
+/tracing/ @MooreTheAnalyst @akprinciple @Lynndabel
+
+# GitHub configuration
+/.github/ @MooreTheAnalyst @akprinciple @Lynndabel

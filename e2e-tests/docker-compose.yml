@@ -1,0 +1,30 @@
+services:
+  soroban-preview:
+    image: stellar/quickstart:testing
+    command: --local --enable-soroban-rpc
+    ports:
+      - '8000:8000'
+    healthcheck:
+      test:
+        - CMD
+        - curl
+        - -f
+        # Soroban RPC only accepts POST (GET returns 405); hit the root,
+        # which quickstart's nginx serves with 200 once services are up.
+        - http://localhost:8000/
+      interval: 2s
+      timeout: 5s
+      retries: 30
+      start_period: 10s
+    volumes:
+      # Mount stellar core storage to persist state across restarts (optional)
+      - soroban-data:/opt/stellar
+    networks:
+      - stellar-test
+
+volumes:
+  soroban-data:
+
+networks:
+  stellar-test:
+    driver: bridge

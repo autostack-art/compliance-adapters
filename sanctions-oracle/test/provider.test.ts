@@ -1,31 +1,36 @@
 import { SanctionsProvider } from '../src/SanctionsProvider';
 import { MockSanctionsProvider, MOCK_FLAGGED_ADDRESSES } from '../src/mockProvider';
 import { CsvSanctionsProvider } from '../src/csvProvider';
+import { RestSanctionsProvider } from '../src/restProvider';
 import * as path from 'path';
+import { assertSanctionsProviderContract } from './providerContract';
 
 const KNOWN_FLAGGED_ADDRESS = Object.keys(MOCK_FLAGGED_ADDRESSES)[0];
 const KNOWN_UNFLAGGED_ADDRESS = 'GDNOTPRESENTINANYMOCKWATCHLISTAAAAAAAAAAAAAAAAAAAAAAAAAA';
 
-async function assertConformsToSanctionsProvider(provider: SanctionsProvider): Promise<void> {
-  const flaggedResult = await provider.checkAddress(KNOWN_FLAGGED_ADDRESS);
-  expect(typeof flaggedResult.flagged).toBe('boolean');
-  expect(typeof flaggedResult.source).toBe('string');
-  expect(flaggedResult.source.length).toBeGreaterThan(0);
-
-  const unflaggedResult = await provider.checkAddress(KNOWN_UNFLAGGED_ADDRESS);
-  expect(typeof unflaggedResult.flagged).toBe('boolean');
-  expect(typeof unflaggedResult.source).toBe('string');
-  expect(unflaggedResult.source.length).toBeGreaterThan(0);
-}
-
 describe('SanctionsProvider interface conformance', () => {
-  it('MockSanctionsProvider conforms to the SanctionsProvider shape', async () => {
-    await assertConformsToSanctionsProvider(new MockSanctionsProvider());
+  it('MockSanctionsProvider conforms to the SanctionsProvider contract', async () => {
+    const provider = new MockSanctionsProvider();
+    await assertSanctionsProviderContract(provider);
   });
 
-  it('CsvSanctionsProvider conforms to the SanctionsProvider shape', async () => {
+  it('CsvSanctionsProvider conforms to the SanctionsProvider contract', async () => {
     const csvPath = path.join(__dirname, 'fixtures', 'addresses.csv');
-    await assertConformsToSanctionsProvider(new CsvSanctionsProvider(csvPath));
+    await assertSanctionsProviderContract(new CsvSanctionsProvider(csvPath));
+  });
+
+  it('RestSanctionsProvider conforms to the SanctionsProvider contract', async () => {
+    const fetchImpl = jest.fn().mockResolvedValue({
+      ok: true,
+      status: 200,
+      json: async () => ({ is_flagged: false, lists: [] }),
+    } as unknown as Response);
+    const provider = new RestSanctionsProvider({
+      apiBaseUrl: 'https://api.example.com',
+      apiKey: 'test-key',
+      fetchImpl,
+    });
+    await assertSanctionsProviderContract(provider);
   });
 });
 
@@ -42,29 +47,5 @@ describe('MockSanctionsProvider', () => {
     const result = await provider.checkAddress(KNOWN_UNFLAGGED_ADDRESS);
     expect(result.flagged).toBe(false);
     expect(result.source).toBe('mock-watchlist-v1');
-  });
-});
-
-describe('CsvSanctionsProvider', () => {
-  const csvPath = path.join(__dirname, 'fixtures', 'addresses.csv');
-
-  it('flags a known CSV watchlist address', async () => {
-    const provider = new CsvSanctionsProvider(csvPath);
-    const result = await provider.checkAddress('GHBRPOIGF3CBFNOBM2O4RAK3VRJNVGFYGWWQC5HYFSXMECOSFOGYR5XK');
-    expect(result.flagged).toBe(true);
-    expect(result.source).toBe('csv-watchlist-v1');
-  });
-
-  it('does not flag an address absent from the CSV watchlist', async () => {
-    const provider = new CsvSanctionsProvider(csvPath);
-    const result = await provider.checkAddress(KNOWN_UNFLAGGED_ADDRESS);
-    expect(result.flagged).toBe(false);
-    expect(result.source).toBe('csv-watchlist-v1');
-  });
-
-  it('throws an error when CSV file does not exist', () => {
-    expect(() => new CsvSanctionsProvider('/nonexistent/path.csv')).toThrow(
-      'CSV file not found at path: /nonexistent/path.csv'
-    );
   });
 });

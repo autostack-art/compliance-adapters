@@ -1,0 +1,51 @@
+name: Lockfile Drift & Clean Install
+
+# CI's main `test-unit` job runs `npm ci`, which installs strictly from the
+# committed package-lock.json and never re-resolves against the seven
+# workspace package.json files. That means a lockfile that has silently
+# drifted from what package.json actually specifies (e.g. a hand-edited
+# version range) can pass CI yet break a real `npm install` for consumers.
+#
+# This job periodically deletes the lockfile, runs a from-scratch
+# `npm install`, and fails if the regenerated lockfile differs from the
+# committed one — then proves a clean checkout still builds.
+
+on:
+  schedule:
+    # Mondays at 06:00 UTC
+    - cron: '0 6 * * 1'
+  workflow_dispatch: {}
+
+jobs:
+  clean-install:
+    name: Clean npm install & build
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        node-version: [20.x]
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+
+      - name: Use Node.js ${{ matrix.node-version }}
+        uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
+        with:
+          node-version: ${{ matrix.node-version }}
+          cache: 'npm'
+          cache-dependency-path: package-lock.json
+
+      - name: Remove committed lockfile
+        run: rm -f package-lock.json
+
+      - name: Fresh npm install (from-scratch resolution)
+        run: npm install
+
+      - name: Fail if the lockfile drifted
+        run: |
+          if ! git diff --exit-code -- package-lock.json; then
+            echo "::error::package-lock.json is out of sync with the package.json files."
+            echo "Run 'npm install' locally and commit the regenerated package-lock.json."
+            exit 1
+          fi
+
+      - name: Build from a clean checkout
+        run: npm run build

@@ -1,0 +1,10 @@
+{
+  "$schema": "https://unpkg.com/@changesets/config@latest/schema.json",
+  "changelog": ["@changesets/changelog-github", {"repo": "stellar-compliance-kit/compliance-adapters"}],
+  "commit": false,
+  "linked": [],
+  "access": "restricted",
+  "baseBranch": "main",
+  "updateInternalDependencies": "patch",
+  "ignore": []
+}

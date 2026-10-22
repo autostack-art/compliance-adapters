@@ -1,5 +1,13 @@
-import { Keypair, Networks, Transaction } from '@stellar/stellar-sdk';
-import { generateChallenge } from '../src/challenge';
+import { Account, Keypair, MuxedAccount, Networks, Transaction } from '@stellar/stellar-sdk';
+import {
+  generateChallenge,
+  InvalidClientAddressError,
+  InvalidDomainError,
+  InvalidMemoError,
+  resolveHomeDomain,
+  ServerKeypairCannotSignError,
+  UnknownHomeDomainError,
+} from '../src/challenge';
 
 describe('generateChallenge', () => {
   const homeDomain = 'localhost:3000';
@@ -35,5 +43,200 @@ describe('generateChallenge', () => {
 
     expect(challenge.networkPassphrase).toBe(Networks.TESTNET);
     expect(challenge.transactionXDR.length).toBeGreaterThan(0);
+  });
+
+  it('round-trips a custom memo into the built challenge transaction', () => {
+    const serverKeypair = Keypair.random();
+    const clientKeypair = Keypair.random();
+    const memo = '123456789';
+
+    const challenge = generateChallenge(clientKeypair.publicKey(), serverKeypair, {
+      homeDomain,
+      webAuthDomain: homeDomain,
+      networkPassphrase: Networks.TESTNET,
+      memo,
+    });
+
+    const tx = new Transaction(challenge.transactionXDR, Networks.TESTNET);
+
+    expect(tx.memo.type).toBe('id');
+    expect(tx.memo.value).toBe(memo);
+  });
+
+  it('omits the memo from the built transaction when not provided', () => {
+    const serverKeypair = Keypair.random();
+    const clientKeypair = Keypair.random();
+
+    const challenge = generateChallenge(clientKeypair.publicKey(), serverKeypair, {
+      homeDomain,
+      webAuthDomain: homeDomain,
+      networkPassphrase: Networks.TESTNET,
+    });
+
+    const tx = new Transaction(challenge.transactionXDR, Networks.TESTNET);
+
+    expect(tx.memo.type).toBe('none');
+    expect(tx.memo.value).toBeNull();
+  });
+
+  it('throws InvalidClientAddressError when clientAddress is not a valid Stellar Ed25519 public key', () => {
+    const serverKeypair = Keypair.random();
+    const invalidAddress = 'invalid-address';
+
+    expect(() => generateChallenge(invalidAddress, serverKeypair)).toThrow(
+      InvalidClientAddressError,
+    );
+  });
+
+  it('throws ServerKeypairCannotSignError when serverKeypair has no secret key', () => {
+    const publicOnly = Keypair.fromPublicKey(Keypair.random().publicKey());
+
+    expect(() => generateChallenge(Keypair.random().publicKey(), publicOnly)).toThrow(
+      ServerKeypairCannotSignError,
+    );
+  });
+
+  it('warns when using default homeDomain in production environment (issue #303)', () => {
+    const serverKeypair = Keypair.random();
+    const clientKeypair = Keypair.random();
+    const mockLogger = { warn: jest.fn(), debug: jest.fn(), info: jest.fn() };
+
+    const originalNodeEnv = process.env.NODE_ENV;
+    process.env.NODE_ENV = 'production';
+
+    try {
+      generateChallenge(clientKeypair.publicKey(), serverKeypair, {
+        networkPassphrase: Networks.TESTNET,
+        logger: mockLogger as any,
+      });
+
+      expect(mockLogger.warn).toHaveBeenCalledWith(
+        expect.stringContaining('default homeDomain'),
+        expect.anything(),
+      );
+    } finally {
+      process.env.NODE_ENV = originalNodeEnv;
+    }
+  });
+
+  it('does not warn when an explicit homeDomain is provided', () => {
+    const serverKeypair = Keypair.random();
+    const clientKeypair = Keypair.random();
+    const mockLogger = { warn: jest.fn(), debug: jest.fn(), info: jest.fn() };
+
+    const originalNodeEnv = process.env.NODE_ENV;
+    process.env.NODE_ENV = 'production';
+
+    try {
+      generateChallenge(clientKeypair.publicKey(), serverKeypair, {
+        homeDomain: 'example.com',
+        webAuthDomain: 'example.com',
+        networkPassphrase: Networks.TESTNET,
+        logger: mockLogger as any,
+      });
+
+      expect(mockLogger.warn).not.toHaveBeenCalled();
+    } finally {
+      process.env.NODE_ENV = originalNodeEnv;
+    }
+  });
+
+  it('does not warn in development environment even with default homeDomain', () => {
+    const serverKeypair = Keypair.random();
+    const clientKeypair = Keypair.random();
+    const mockLogger = { warn: jest.fn(), debug: jest.fn(), info: jest.fn() };
+
+    const originalNodeEnv = process.env.NODE_ENV;
+    process.env.NODE_ENV = 'development';
+
+    try {
+      generateChallenge(clientKeypair.publicKey(), serverKeypair, {
+        networkPassphrase: Networks.TESTNET,
+        logger: mockLogger as any,
+      });
+
+      expect(mockLogger.warn).not.toHaveBeenCalled();
+    } finally {
+      process.env.NODE_ENV = originalNodeEnv;
+    }
+  });
+
+  it('does not warn in test environment even with default homeDomain', () => {
+    const serverKeypair = Keypair.random();
+    const clientKeypair = Keypair.random();
+    const mockLogger = { warn: jest.fn(), debug: jest.fn(), info: jest.fn() };
+
+    const originalNodeEnv = process.env.NODE_ENV;
+    process.env.NODE_ENV = 'test';
+
+    try {
+      generateChallenge(clientKeypair.publicKey(), serverKeypair, {
+        networkPassphrase: Networks.TESTNET,
+        logger: mockLogger as any,
+      });
+
+      expect(mockLogger.warn).not.toHaveBeenCalled();
+    } finally {
+      process.env.NODE_ENV = originalNodeEnv;
+    }
+  });
+
+  it.each(['https://example.com', 'example.com/', 'example.com/path', 'exa mple.com'])(
+    'rejects non-bare homeDomain %p',
+    (bad) => {
+      expect(() =>
+        generateChallenge(Keypair.random().publicKey(), Keypair.random(), { homeDomain: bad }),
+      ).toThrow(InvalidDomainError);
+    },
+  );
+
+  it('rejects a non-bare webAuthDomain', () => {
+    expect(() =>
+      generateChallenge(Keypair.random().publicKey(), Keypair.random(), {
+        homeDomain: 'example.com',
+        webAuthDomain: 'https://example.com',
+      }),
+    ).toThrow(InvalidDomainError);
+  });
+
+  it.each(['abc', '12abc', '-1', '1.5', '', '18446744073709551616'])(
+    'rejects invalid memo %p with InvalidMemoError',
+    (memo) => {
+      expect(() =>
+        generateChallenge(Keypair.random().publicKey(), Keypair.random(), { memo }),
+      ).toThrow(InvalidMemoError);
+    },
+  );
+
+  it('accepts a valid uint64 memo', () => {
+    expect(() =>
+      generateChallenge(Keypair.random().publicKey(), Keypair.random(), {
+        memo: '18446744073709551615',
+      }),
+    ).not.toThrow();
+  });
+});
+
+describe('resolveHomeDomain', () => {
+  const configured = ['example.com', 'other.example.org'];
+
+  it('returns a requested domain that is configured', () => {
+    expect(resolveHomeDomain('other.example.org', configured)).toBe('other.example.org');
+  });
+
+  it('rejects a domain that is not configured', () => {
+    expect(() => resolveHomeDomain('evil.example.net', configured)).toThrow(UnknownHomeDomainError);
+  });
+
+  it('falls back to the first configured domain when the param is missing', () => {
+    expect(resolveHomeDomain(undefined, configured)).toBe('example.com');
+    expect(resolveHomeDomain(null, configured)).toBe('example.com');
+    expect(resolveHomeDomain('', configured)).toBe('example.com');
+  });
+
+  it('accepts a single configured domain given as a string', () => {
+    expect(resolveHomeDomain(undefined, 'example.com')).toBe('example.com');
+    expect(resolveHomeDomain('example.com', 'example.com')).toBe('example.com');
+    expect(() => resolveHomeDomain('other.com', 'example.com')).toThrow(UnknownHomeDomainError);
   });
 });

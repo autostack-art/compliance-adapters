@@ -1,0 +1,16 @@
+# Auto detect text files and normalize line endings to LF on checkin.
+* text=auto eol=lf
+
+# Binary files should never be normalized.
+*.png binary
+*.jpg binary
+*.jpeg binary
+*.gif binary
+*.ico binary
+*.woff binary
+*.woff2 binary
+*.ttf binary
+*.eot binary
+
+# Lockfile noise reduction in PR diffs.
+package-lock.json linguist-generated=true diff=lockfile

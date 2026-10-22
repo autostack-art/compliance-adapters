@@ -4,15 +4,26 @@
   "private": true,
   "main": "dist/index.js",
   "types": "dist/index.d.ts",
+  "files": [
+    "dist",
+    "README.md"
+  ],
   "engines": {
     "node": ">=20.0.0"
   },
   "scripts": {
     "build": "tsc -p .",
-    "test": "jest"
+    "typecheck": "tsc -p . --noEmit",
+    "test": "jest",
+    "bench": "ts-node bench/listener-throughput.ts"
   },
   "dependencies": {
-    "@stellar/stellar-sdk": "^16.0.1"
+    "@stellar/stellar-sdk": "^16.0.1",
+    "@compliance-adapters/backoff": "*",
+    "@compliance-adapters/logger": "*",
+    "@compliance-adapters/metrics": "*",
+    "@compliance-adapters/tracing": "*",
+    "@compliance-adapters/tracing-types": "*"
   },
   "devDependencies": {
     "typescript": "^5.5.4",

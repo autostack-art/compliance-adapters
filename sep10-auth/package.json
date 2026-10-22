@@ -4,26 +4,54 @@
   "private": true,
   "main": "dist/index.js",
   "types": "dist/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "default": "./dist/index.js"
+    },
+    "./fastify": {
+      "types": "./dist/fastify.d.ts",
+      "default": "./dist/fastify.js"
+    },
+    "./package.json": "./package.json"
+  },
+  "files": [
+    "dist",
+    "README.md"
+  ],
   "engines": {
     "node": ">=20.0.0"
   },
   "scripts": {
     "build": "tsc -p .",
-    "test": "jest"
+    "typecheck": "tsc -p . --noEmit",
+    "test": "jest",
+    "bench": "ts-node bench/challenge-throughput.ts"
   },
   "dependencies": {
-    "@stellar/stellar-sdk": "^16.0.1"
+    "@stellar/stellar-sdk": "^16.0.1",
+    "@compliance-adapters/logger": "*",
+    "@compliance-adapters/shared": "*"
   },
   "peerDependencies": {
-    "express": "^4.19.0"
+    "express": "^4.19.0",
+    "fastify": "^4.0.0 || ^5.0.0",
+    "fastify-plugin": "^4.0.0 || ^5.0.0"
   },
   "peerDependenciesMeta": {
     "express": {
+      "optional": true
+    },
+    "fastify": {
+      "optional": true
+    },
+    "fastify-plugin": {
       "optional": true
     }
   },
   "devDependencies": {
     "typescript": "^5.5.4",
+    "ts-node": "^10.9.2",
     "jest": "^29.7.0",
     "ts-jest": "^29.2.4",
     "@types/jest": "^29.5.12",
@@ -32,6 +60,11 @@
     "express": "^4.19.0",
     "babel-jest": "^29.7.0",
     "@babel/core": "^7.25.2",
-    "@babel/preset-env": "^7.25.4"
+    "@babel/preset-env": "^7.25.4",
+    "fast-check": "4.9.0",
+    "supertest": "^7.0.0",
+    "@types/supertest": "^6.0.2",
+    "fastify": "^5.0.0",
+    "fastify-plugin": "^5.0.0"
   }
 }

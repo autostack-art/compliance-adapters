@@ -1,0 +1,34 @@
+# Repository metadata for stellar-compliance-kit/compliance-adapters
+#
+# A maintainer with admin access should apply these settings via:
+#   GitHub UI → Settings → General (description + website)
+#   GitHub UI → Settings → Topics (gear icon on repo home page)
+#
+# Or via the GitHub API (requires a token with the `repo` scope):
+#
+#   gh api -X PATCH /repos/stellar-compliance-kit/compliance-adapters \
+#     --field description="Integration adapters connecting Stellar compliance primitives to SEP-10 auth, sanctions oracles, and Horizon/RPC event streams."
+#
+#   gh api -X PUT /repos/stellar-compliance-kit/compliance-adapters/topics \
+#     --field names[]="stellar" \
+#     --field names[]="soroban" \
+#     --field names[]="sep-10" \
+#     --field names[]="compliance" \
+#     --field names[]="typescript" \
+#     --field names[]="stellar-sdk" \
+#     --field names[]="monorepo" \
+#     --field names[]="blockchain"
+
+description: >
+  Integration adapters connecting Stellar compliance primitives to SEP-10 auth,
+  sanctions oracles, and Horizon/RPC event streams.
+
+topics:
+  - stellar
+  - soroban
+  - sep-10
+  - compliance
+  - typescript
+  - stellar-sdk
+  - monorepo
+  - blockchain
