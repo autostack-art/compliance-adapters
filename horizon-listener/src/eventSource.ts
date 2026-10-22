@@ -101,12 +101,7 @@ export interface RawContractEvent {
 export interface EventSource {
   getEvents(
     cursor: string | undefined,
-  ): Promise<{ events: RawContractEvent[]; nextCursor: string }>;
-  /**
-   * Optional: restart cursor-less reads from `ledger`. Used by the listener's
-   * `onGap: 'skipToOldest'` recovery after a {@link CursorOutOfRangeError}.
-   */
-  resetToLedger?(ledger: number): void;
+  ): Promise<{ events: RawContractEvent[]; nextCursor: string; latestLedger?: number }>;
 }
 
 export interface RpcEventSourceOptions {
@@ -246,31 +241,8 @@ export class RpcEventSource implements EventSource {
 
   async getEvents(
     cursor: string | undefined,
-  ): Promise<{ events: RawContractEvent[]; nextCursor: string }> {
-    // Return to a healthy primary once the cooldown has elapsed.
-    if (this.urlIndex !== 0 && Date.now() - this.failedOverAt >= (this.options.primaryCooldownMs ?? 60_000)) {
-      this.switchTo(0);
-    }
-    try {
-      const result = await this.fetchEvents(cursor);
-      this.consecutiveFailures = 0;
-      return result;
-    } catch (err) {
-      const gapErr = toCursorOutOfRangeError(err, cursor ?? this.startLedger);
-      if (gapErr) throw gapErr;
-      this.consecutiveFailures += 1;
-      if (this.rpcUrls.length > 1 && this.consecutiveFailures >= (this.options.failoverAfter ?? 3)) {
-        this.failedOverAt = Date.now();
-        this.switchTo((this.urlIndex + 1) % this.rpcUrls.length);
-      }
-      throw err;
-    }
-  }
-
-  private async fetchEvents(
-    cursor: string | undefined,
-  ): Promise<{ events: RawContractEvent[]; nextCursor: string }> {
-    if (!cursor && this.startLedger == null) {
+  ): Promise<{ events: RawContractEvent[]; nextCursor: string; latestLedger?: number }> {
+    if (!cursor && this.options.startLedger == null) {
       throw new Error(
         'horizon-listener: RpcEventSource requires `startLedger` for the first cursor-less ' +
           "getEvents call. Pass a recent ledger within the RPC node's event retention window " +
@@ -326,6 +298,8 @@ export class RpcEventSource implements EventSource {
     const nextCursor =
       responseCursor ?? (events.length > 0 ? events[events.length - 1].id : (cursor ?? ''));
 
-    return { events, nextCursor };
+    const latestLedger = (response as unknown as { latestLedger?: number }).latestLedger;
+
+    return { events, nextCursor, latestLedger };
   }
 }

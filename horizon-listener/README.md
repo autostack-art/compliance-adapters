@@ -295,68 +295,40 @@ If `signingSecret` is omitted, `HttpWebhookSender` sends requests without
 `X-Timestamp` or `X-Signature` headers, exactly as before this feature was
 added.
 
-## Event filters (`topics`, `eventType`)
+### Secret rotation runbook
 
-`RpcEventSource` can push filtering down to the RPC so you don't download
-events you will discard:
+`signingSecret` also accepts an array. Every entry signs the request, and the
+signatures are sent comma-separated (`X-Signature: sha256=<new>,sha256=<old>`).
+Receivers can use the exported `verifyWebhookSignature(rawBody, timestamp,
+signatureHeader, secrets)` helper, which accepts a list of secrets.
+
+1. Receiver: accept both secrets, e.g. `verifyWebhookSignature(body, ts, sig, [NEW, OLD])`.
+2. Sender: switch to `signingSecret: [NEW, OLD]` (new is primary).
+3. Once all receivers trust `NEW`, set `signingSecret: NEW` on the sender.
+4. Receiver: drop `OLD` from its list.
+
+No delivery fails at any step, because there is always a signature the
+receiver accepts.
+
+## Idempotency-Key header
+
+Every delivery carries `Idempotency-Key: <event.id>`. The value is the same on
+every retry of one event, so receivers can deduplicate on it. Batched
+deliveries use a stable SHA-256-derived key over the batch's event ids.
+
+## Batched deliveries
+
+Batching is opt-in:
 
 ```ts
-new RpcEventSource({
-  rpcUrl, networkPassphrase, contractIds, startLedger,
-  // Each filter is 1-4 topic segments (base64 XDR ScVal); "*" matches any segment.
-  topics: [['AAAADwAAAA9kZW55bGlzdF9hZGRlZAA=', '*']],
-  // 'contract' (default) | 'system' | 'diagnostic' | 'all'
-  eventType: 'contract',
-});
+const sender = new HttpWebhookSender({ url, batchSize: 50, batchMaxWaitMs: 500 });
 ```
 
-Invalid filter shapes (non-array, empty, more than 4 segments, non-string
-segments) and unknown `eventType` values throw at construction. The default
-`eventType` remains `'contract'`, matching previous behaviour.
-
-## Multiple webhook targets (`MultiWebhookSender`)
-
-`MultiWebhookSender` delivers each event to several senders concurrently.
-Each target owns its retry/backoff (via its own `HttpWebhookSender`) and an
-optional per-target DLQ, so one slow or failing target never blocks the others.
-
-```ts
-const sender = new MultiWebhookSender({
-  targets: [
-    { name: 'siem', sender: new HttpWebhookSender({ url: SIEM_URL }), deadLetterQueue: siemDlq },
-    { name: 'warehouse', sender: new HttpWebhookSender({ url: DWH_URL }), required: false },
-  ],
-});
-```
-
-- **Required** targets (default): the event is acknowledged only when every
-  required target confirms delivery. If any fails, it is dead-lettered to that
-  target's DLQ and `send` rejects with `MultiWebhookDeliveryError`.
-- **Optional** targets (`required: false`): failures are dead-lettered to the
-  target's DLQ (if configured) but never block acknowledgement.
-
-Note that when a required target fails, targets that already succeeded may
-receive the event again if the caller retries `send`; receivers should
-deduplicate on `event.id`.
-
-## Payload schema versioning
-
-Every webhook delivery carries an `X-Compliance-Schema-Version` header and a
-`schemaVersion` field in the JSON body (currently `1`, exported as
-`WEBHOOK_SCHEMA_VERSION`):
-
-```json
-{ "schemaVersion": 1, "event": { "id": "...", "contractId": "C...", "ledger": 123, "topic": [], "value": {} } }
-```
-
-Versioning policy:
-
-- Additive, backward-compatible changes (new optional fields) do **not** bump
-  the version; receivers must ignore unknown fields.
-- Removing or renaming fields, or changing a field's type or meaning, bumps
-  the version and is called out in the changelog.
-- Receivers should branch on the header/field rather than inferring the shape,
-  so senders and receivers can be upgraded independently.
+With `batchSize > 1`, events are buffered and POSTed as `{ "events": [...] }`
+when the buffer reaches `batchSize` or `batchMaxWaitMs` elapses. The signature
+covers the whole body and the batch is retried as a unit; each `send()`
+promise settles with its batch. Call `await sender.stop()` (or `flush()`) on
+shutdown to deliver any partial batch.
 
 ## Reconnect / backoff behavior
 
@@ -470,6 +442,9 @@ The exported metric names are prefixed with the value from `prefix` (default:
 - `${prefix}_duration_ms_bucket{phase="...",le="..."}`
 - `${prefix}_duration_ms_sum{phase="..."}`
 - `${prefix}_duration_ms_count{phase="..."}`
+- `${prefix}_ledger_lag` — gauge: `latestLedger` from the latest `getEvents`
+  response minus the ledger of the last processed event (0 when caught up).
+  Updated on every successful poll; the main SLO signal for pipeline freshness.
 
 ### Scraping example
 

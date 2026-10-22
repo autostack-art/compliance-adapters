@@ -12,6 +12,10 @@
  * rpc_poll    — each call to `eventSource.getEvents()`
  * event_relay — each call to the `onEvent` handler (one per received event)
  * webhook     — each call to a `WebhookSender.send()` (tracked at call site)
+ *
+ * Gauges
+ * ──────
+ * ledger_lag  — latest ledger reported by RPC minus the last processed ledger
  */
 
 import {
@@ -48,8 +52,31 @@ export type MetricsRegistryOptions = Omit<
  * to use the built-in no-op registry — there is zero overhead.
  */
 export class MetricsRegistry extends GenericMetricsRegistry<Phase> {
+  private readonly gaugePrefix: string;
+  private ledgerLag = 0;
+
   constructor(options: MetricsRegistryOptions = {}) {
-    super({ ...options, prefix: options.prefix ?? 'horizon_listener', phases: PHASES });
+    const prefix = options.prefix ?? 'horizon_listener';
+    super({ ...options, prefix, phases: PHASES });
+    this.gaugePrefix = prefix;
+  }
+
+  /** Sets the `<prefix>_ledger_lag` gauge (latest ledger − processed ledger). */
+  setLedgerLag(lag: number): void {
+    this.ledgerLag = lag;
+  }
+
+  getLedgerLag(): number {
+    return this.ledgerLag;
+  }
+
+  override expose(): string {
+    const name = `${this.gaugePrefix}_ledger_lag`;
+    return (
+      super.expose() +
+      `# HELP ${name} Latest ledger minus last processed ledger\n` +
+      `# TYPE ${name} gauge\n${name} ${this.ledgerLag}\n`
+    );
   }
 }
 
@@ -57,6 +84,12 @@ export class MetricsRegistry extends GenericMetricsRegistry<Phase> {
  * A no-op registry that discards all observations.
  * Used as the default so callers that don't provide a registry pay no cost.
  */
-export class NoopMetricsRegistry extends GenericNoopMetricsRegistry<Phase> {}
+export class NoopMetricsRegistry extends GenericNoopMetricsRegistry<Phase> {
+  setLedgerLag(_lag: number): void {}
+
+  getLedgerLag(): number {
+    return 0;
+  }
+}
 
 export type AnyMetricsRegistry = MetricsRegistry | NoopMetricsRegistry;
