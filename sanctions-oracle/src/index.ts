@@ -26,6 +26,15 @@ export {
   FeeEstimate,
   RpcFeeEstimatorOptions,
 } from './sync';
+export { type Signer, KeypairSigner, toSigner, signTransaction } from './signer';
+export {
+  CircuitBreakerSanctionsProvider,
+  CircuitOpenError,
+  CIRCUIT_STATE_VALUES,
+  PROVIDER_CIRCUIT_STATE_METRIC,
+  type CircuitState,
+  type CircuitBreakerOptions,
+} from './circuitBreakerProvider';
 export { SyncCheckpointStore, InMemoryCheckpointStore } from './checkpoint';
 export { withRetry, RetryOptions } from './retry';
 export {
@@ -63,6 +72,7 @@ export {
   type SpanExporter,
   type TracingContext,
   type TracingOptions,
+  extractTraceContext,
 } from './tracing';
 export { RateLimitedSanctionsProvider, RateLimitOptions } from './rateLimitedProvider';
 export { RestSanctionsProvider } from './restProvider';

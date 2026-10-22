@@ -62,10 +62,30 @@ export interface EventSource {
   getEvents(
     cursor: string | undefined,
   ): Promise<{ events: RawContractEvent[]; nextCursor: string }>;
+  /**
+   * Optional: restart cursor-less reads from `ledger`. Used by the listener's
+   * `onGap: 'skipToOldest'` recovery after a {@link CursorOutOfRangeError}.
+   */
+  resetToLedger?(ledger: number): void;
 }
 
 export interface RpcEventSourceOptions {
-  rpcUrl: string;
+  /** Single RPC endpoint. Either `rpcUrl` or `rpcUrls` is required. */
+  rpcUrl?: string;
+  /**
+   * Ordered list of RPC endpoints for failover. The first entry is the
+   * primary; after `failoverAfter` consecutive failures the source rotates to
+   * the next URL (the listener's cursor is kept, so no events are skipped).
+   */
+  rpcUrls?: string[];
+  /** Consecutive failures on one URL before rotating to the next. @default 3 */
+  failoverAfter?: number;
+  /** How long to stay on a fallback before retrying the primary. @default 60000 */
+  primaryCooldownMs?: number;
+  /** Called whenever the active URL changes. */
+  onFailover?: (from: string, to: string) => void;
+  /** Records an `rpc_failover` counter increment on every rotation. */
+  metrics?: AnyMetricsRegistry;
   networkPassphrase: string;
   contractIds: string[];
   // Soroban RPC requires a starting ledger for the very first (cursor-less)
@@ -100,9 +120,21 @@ type GetEventsResponse = Awaited<ReturnType<rpc.Server['getEvents']>>;
 
 export class RpcEventSource implements EventSource {
   private readonly options: RpcEventSourceOptions;
-  private server: rpc.Server | undefined;
+  private readonly rpcUrls: string[];
+  private readonly servers = new Map<string, rpc.Server>();
+  private readonly metrics: AnyMetricsRegistry;
+  private startLedger: number | undefined;
+  private urlIndex = 0;
+  private consecutiveFailures = 0;
+  private failedOverAt = 0;
 
   constructor(options: RpcEventSourceOptions) {
+    this.rpcUrls = options.rpcUrls?.length ? options.rpcUrls : options.rpcUrl ? [options.rpcUrl] : [];
+    if (this.rpcUrls.length === 0) {
+      throw new Error('horizon-listener: RpcEventSource requires `rpcUrl` or a non-empty `rpcUrls` array');
+    }
+    this.metrics = options.metrics ?? new NoopMetricsRegistry();
+    this.startLedger = options.startLedger;
     if (options.contractIds.length === 0) {
       throw new Error(
         'horizon-listener: RpcEventSource requires at least one contract ID (contractIds array cannot be empty)',
@@ -111,19 +143,60 @@ export class RpcEventSource implements EventSource {
     this.options = options;
   }
 
+  /** The RPC URL currently in use. */
+  get activeRpcUrl(): string {
+    return this.rpcUrls[this.urlIndex];
+  }
+
+  resetToLedger(ledger: number): void {
+    this.startLedger = ledger;
+  }
+
   private getServer(): rpc.Server {
-    if (!this.server) {
-      this.server = new rpc.Server(this.options.rpcUrl, {
-        allowHttp: this.options.rpcUrl.startsWith('http://'),
-      });
+    const url = this.activeRpcUrl;
+    let server = this.servers.get(url);
+    if (!server) {
+      server = new rpc.Server(url, { allowHttp: url.startsWith('http://') });
+      this.servers.set(url, server);
     }
-    return this.server;
+    return server;
+  }
+
+  private switchTo(index: number): void {
+    const from = this.activeRpcUrl;
+    this.urlIndex = index;
+    this.consecutiveFailures = 0;
+    this.metrics.counter.inc('rpc_failover', 'success');
+    this.options.onFailover?.(from, this.activeRpcUrl);
   }
 
   async getEvents(
     cursor: string | undefined,
   ): Promise<{ events: RawContractEvent[]; nextCursor: string }> {
-    if (!cursor && this.options.startLedger == null) {
+    // Return to a healthy primary once the cooldown has elapsed.
+    if (this.urlIndex !== 0 && Date.now() - this.failedOverAt >= (this.options.primaryCooldownMs ?? 60_000)) {
+      this.switchTo(0);
+    }
+    try {
+      const result = await this.fetchEvents(cursor);
+      this.consecutiveFailures = 0;
+      return result;
+    } catch (err) {
+      const gapErr = toCursorOutOfRangeError(err, cursor ?? this.startLedger);
+      if (gapErr) throw gapErr;
+      this.consecutiveFailures += 1;
+      if (this.rpcUrls.length > 1 && this.consecutiveFailures >= (this.options.failoverAfter ?? 3)) {
+        this.failedOverAt = Date.now();
+        this.switchTo((this.urlIndex + 1) % this.rpcUrls.length);
+      }
+      throw err;
+    }
+  }
+
+  private async fetchEvents(
+    cursor: string | undefined,
+  ): Promise<{ events: RawContractEvent[]; nextCursor: string }> {
+    if (!cursor && this.startLedger == null) {
       throw new Error(
         'horizon-listener: RpcEventSource requires `startLedger` for the first cursor-less ' +
           "getEvents call. Pass a recent ledger within the RPC node's event retention window " +
@@ -140,7 +213,7 @@ export class RpcEventSource implements EventSource {
             filters: [{ type: 'contract', contractIds: this.options.contractIds }],
           }
         : {
-            startLedger: this.options.startLedger,
+            startLedger: this.startLedger,
             filters: [{ type: 'contract', contractIds: this.options.contractIds }],
           }
     ) as GetEventsRequest;
