@@ -1,0 +1,32 @@
+{
+  "files": [],
+  "references": [
+    {
+      "path": "./backoff"
+    },
+    {
+      "path": "./logger"
+    },
+    {
+      "path": "./shared"
+    },
+    {
+      "path": "./tracing-types"
+    },
+    {
+      "path": "./metrics"
+    },
+    {
+      "path": "./tracing"
+    },
+    {
+      "path": "./sep10-auth"
+    },
+    {
+      "path": "./sanctions-oracle"
+    },
+    {
+      "path": "./horizon-listener"
+    }
+  ]
+}

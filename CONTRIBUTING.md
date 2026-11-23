@@ -192,3 +192,12 @@ Use the issue templates under **New Issue** — one for bug reports, one for fea
 Please do not open a public issue for suspected security vulnerabilities in the sanctions-oracle
 sync path, SEP-10 verification logic, or webhook handling. See [SECURITY.md](./SECURITY.md) for
 each package's trust model and how to report a vulnerability privately.
+
+## Build & tooling
+
+- `npm run build` runs `tsc -b` over the root `tsconfig.json` project references
+  (ordered, incremental), then generates ESM wrappers via
+  `scripts/build-esm-wrappers.js`. Use `npm run build:clean` to reset.
+- `npm run knip` reports unused files, exports and dependencies (warn-only in CI).
+- Markdown links are checked by lychee (`.lychee.toml`): relative links and
+  anchors on every PR, external links weekly.

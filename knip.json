@@ -1,0 +1,18 @@
+{
+  "$schema": "https://unpkg.com/knip@5/schema.json",
+  "workspaces": {
+    ".": { "entry": ["bin/*.js", "scripts/*.js"], "project": ["bin/**/*.js", "scripts/**/*.js"] },
+    "{backoff,logger,shared,tracing-types,metrics,tracing,horizon-listener}": {
+      "entry": ["src/index.ts"],
+      "project": ["src/**/*.ts"]
+    },
+    "sep10-auth": {
+      "entry": ["src/index.ts", "src/fastify.ts", "bench/*.ts"],
+      "project": ["src/**/*.ts"]
+    },
+    "sanctions-oracle": { "entry": ["src/index.ts", "src/sync.ts"], "project": ["src/**/*.ts"] },
+    "examples/*": { "entry": ["*.{js,ts}", "src/**/*.ts"] },
+    "e2e-tests": { "entry": ["**/*.test.ts", "**/*.ts"] }
+  },
+  "ignore": ["**/dist/**", "**/coverage/**"]
+}

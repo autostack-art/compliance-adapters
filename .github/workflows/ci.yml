@@ -40,6 +40,11 @@ jobs:
       - name: Check Root Changelog
         run: npm run check:changelog
 
+      - name: Knip (unused exports, files & dependencies)
+        # Warn-only for now (issue #846); flip to blocking once findings are triaged.
+        continue-on-error: true
+        run: npm run knip
+
       - name: Typecheck
         run: npm run typecheck
 

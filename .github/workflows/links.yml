@@ -1,0 +1,34 @@
+name: Markdown Links
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+  schedule:
+    # External links are only checked weekly (Mondays 06:00 UTC).
+    - cron: '0 6 * * 1'
+  workflow_dispatch:
+
+jobs:
+  relative-links:
+    name: Relative links & anchors
+    if: github.event_name != 'schedule'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: lycheeverse/lychee-action@v2
+        with:
+          args: --config .lychee.toml --offline --no-progress './**/*.md'
+          fail: true
+
+  external-links:
+    name: External links (weekly)
+    if: github.event_name == 'schedule' || github.event_name == 'workflow_dispatch'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: lycheeverse/lychee-action@v2
+        with:
+          args: --config .lychee.toml --no-progress './**/*.md'
+          fail: true

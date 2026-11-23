@@ -4,14 +4,27 @@
   "private": true,
   "main": "dist/index.js",
   "types": "dist/index.d.ts",
+  "module": "dist/index.mjs",
   "exports": {
     ".": {
-      "types": "./dist/index.d.ts",
-      "default": "./dist/index.js"
+      "import": {
+        "types": "./dist/index.d.mts",
+        "default": "./dist/index.mjs"
+      },
+      "require": {
+        "types": "./dist/index.d.ts",
+        "default": "./dist/index.js"
+      }
     },
     "./fastify": {
-      "types": "./dist/fastify.d.ts",
-      "default": "./dist/fastify.js"
+      "import": {
+        "types": "./dist/fastify.d.mts",
+        "default": "./dist/fastify.mjs"
+      },
+      "require": {
+        "types": "./dist/fastify.d.ts",
+        "default": "./dist/fastify.js"
+      }
     },
     "./package.json": "./package.json"
   },
@@ -23,7 +36,7 @@
     "node": ">=20.0.0"
   },
   "scripts": {
-    "build": "tsc -p .",
+    "build": "tsc -b . && node ../scripts/build-esm-wrappers.js .",
     "typecheck": "tsc -p . --noEmit",
     "test": "jest",
     "bench": "ts-node bench/challenge-throughput.ts"

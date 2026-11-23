@@ -28,7 +28,7 @@
     "npm": ">=10.0.0"
   },
   "scripts": {
-    "build": "npm run build --workspaces --if-present",
+    "build": "tsc -b && npm run build:esm && npm run build --workspace=examples/sep10-sanctions-gate --workspace=e2e-tests",
     "typecheck": "npm run typecheck --workspaces --if-present",
     "test": "npm run test --workspaces --if-present -- --testPathIgnorePatterns=e2e-tests",
     "test:cli": "jest --config jest.config.js",
@@ -51,7 +51,10 @@
     "version": "changeset version",
     "changelog": "changeset status",
     "release": "npm run check:changelog && changeset publish",
-    "apply-package-labels": "node ./scripts/apply-package-labels.js"
+    "apply-package-labels": "node ./scripts/apply-package-labels.js",
+    "build:esm": "for p in backoff logger shared tracing-types metrics tracing sep10-auth sanctions-oracle horizon-listener; do node scripts/build-esm-wrappers.js $p || exit 1; done",
+    "build:clean": "tsc -b --clean",
+    "knip": "npx --yes knip@5"
   },
   "devDependencies": {
     "@changesets/changelog-github": "^0.7.0",
